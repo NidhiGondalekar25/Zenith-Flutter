@@ -1,0 +1,16 @@
+# Backend node modules
+/backend/node_modules/
+
+# Backend environment files
+/backend/.env
+
+# Backend logs
+/backend/*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE/editor files
+.vscode/
+.idea/
