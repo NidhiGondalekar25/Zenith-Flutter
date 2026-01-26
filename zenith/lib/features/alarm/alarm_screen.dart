@@ -6,7 +6,18 @@ import '../../core/utils/notification_service.dart';
 import 'package:zenith/core/utils/time_utils.dart';
 
 class AlarmScreen extends StatefulWidget {
-  const AlarmScreen({super.key});
+  final String? alarmId;
+  final TimeOfDay? time;
+  final List<int>? repeatDays;
+  final String? title;
+
+  const AlarmScreen({
+    super.key,
+    this.alarmId,
+    this.time,
+    this.repeatDays,
+    this.title,
+  });
 
   @override
   State<AlarmScreen> createState() => _AlarmScreenState();
@@ -23,6 +34,7 @@ class _AlarmScreenState extends State<AlarmScreen> {
 
   Future<void> _loadAlarms() async {
     final storedAlarms = await AlarmDB.getAlarms();
+    debugPrint('📦 Loaded alarms count: ${storedAlarms.length}');
     setState(() {
       alarms
         ..clear()

@@ -13,23 +13,35 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    AlarmScreen(),
-    CalendarScreen(),
-    HabitsScreen(),
-  ];
+  late final List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _screens = const [
+      AlarmScreen(), // ✅ no required params anymore
+      CalendarScreen(),
+      HabitsScreen(),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Zenith')),
-      body: _screens[_currentIndex],
+      appBar: AppBar(title: const Text('Zenith'), centerTitle: true),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: (index) {
+          setState(() => _currentIndex = index);
+        },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.alarm), label: 'Alarm'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Calendar'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today),
+            label: 'Calendar',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.repeat), label: 'Habits'),
         ],
       ),

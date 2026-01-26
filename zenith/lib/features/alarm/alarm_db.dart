@@ -5,20 +5,33 @@ import 'alarm_model.dart';
 class AlarmDB {
   static Database? _db;
 
+  // ------------------------------------------------------------
+  // ✅ PUBLIC INIT (FIXES YOUR ERROR)
+  // ------------------------------------------------------------
+  static Future<void> init() async {
+    await database;
+  }
+
+  // ------------------------------------------------------------
+  // 🗄️ DB GETTER (LAZY INIT)
+  // ------------------------------------------------------------
   static Future<Database> get database async {
     if (_db != null) return _db!;
     _db = await _initDB();
     return _db!;
   }
 
+  // ------------------------------------------------------------
+  // 🛠️ INTERNAL DB CREATION
+  // ------------------------------------------------------------
   static Future<Database> _initDB() async {
     final path = join(await getDatabasesPath(), 'alarms.db');
 
     return openDatabase(
       path,
       version: 1,
-      onCreate: (db, version) {
-        return db.execute('''
+      onCreate: (db, version) async {
+        await db.execute('''
           CREATE TABLE alarms(
             id TEXT PRIMARY KEY,
             time INTEGER,
@@ -33,19 +46,30 @@ class AlarmDB {
     );
   }
 
+  // ------------------------------------------------------------
+  // ➕ INSERT
+  // ------------------------------------------------------------
   static Future<void> insertAlarm(Alarm alarm) async {
     final db = await database;
-    await db.insert('alarms', {
-      'id': alarm.id,
-      'time': alarm.time.millisecondsSinceEpoch,
-      'label': alarm.label,
-      'ringtone': alarm.ringtone,
-      'screen': alarm.screen,
-      'isEnabled': alarm.isEnabled ? 1 : 0,
-      'repeatDays': alarm.repeatDays.join(','),
-    });
+
+    await db.insert(
+      'alarms',
+      {
+        'id': alarm.id,
+        'time': alarm.time.millisecondsSinceEpoch,
+        'label': alarm.label,
+        'ringtone': alarm.ringtone,
+        'screen': alarm.screen,
+        'isEnabled': alarm.isEnabled ? 1 : 0,
+        'repeatDays': alarm.repeatDays.join(','),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
+  // ------------------------------------------------------------
+  // 📥 READ ALL
+  // ------------------------------------------------------------
   static Future<List<Alarm>> getAlarms() async {
     final db = await database;
     final maps = await db.query('alarms');
@@ -67,8 +91,12 @@ class AlarmDB {
     }).toList();
   }
 
+  // ------------------------------------------------------------
+  // ✏️ UPDATE
+  // ------------------------------------------------------------
   static Future<void> updateAlarm(Alarm alarm) async {
     final db = await database;
+
     await db.update(
       'alarms',
       {
@@ -84,6 +112,9 @@ class AlarmDB {
     );
   }
 
+  // ------------------------------------------------------------
+  // ❌ DELETE
+  // ------------------------------------------------------------
   static Future<void> deleteAlarm(String id) async {
     final db = await database;
     await db.delete('alarms', where: 'id = ?', whereArgs: [id]);

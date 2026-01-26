@@ -1,42 +1,30 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'dart:convert';
-import '../../navigation/navigation_service.dart';
 
+import '../../navigation/navigation_service.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
+  /// 🔔 INIT
   static Future<void> init() async {
-    // Initialize timezone (uses device local timezone automatically)
     tz.initializeTimeZones();
     tz.setLocalLocation(tz.local);
 
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const InitializationSettings settings = InitializationSettings(
-      android: androidSettings,
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
     );
+
+    const settings = InitializationSettings(android: androidSettings);
 
     await _notifications.initialize(
       settings,
-      onDidReceiveNotificationResponse: (response) {
-        final payload = response.payload;
-        if (payload != null) {
-          final parts = payload.split('|');
-          final id = int.parse(parts[0]);
-          final title = parts[1];
-
-          navigatorKey.currentState?.pushNamed(
-            '/ring',
-            arguments: {'id': id, 'title': title},
-          );
-        }
-      },
+      onDidReceiveNotificationResponse: _onNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse: _onNotificationResponse,
     );
 
     final androidPlugin = _notifications
@@ -45,73 +33,196 @@ class NotificationService {
         >();
 
     if (androidPlugin != null) {
-      await androidPlugin.requestNotificationsPermission();
+      final canScheduleExact = await androidPlugin
+          .canScheduleExactNotifications();
 
-      const AndroidNotificationChannel alarmChannel =
-          AndroidNotificationChannel(
-            'alarm_channel',
-            'Alarms',
-            description: 'Alarm notifications',
-            importance: Importance.max,
-            playSound: true,
-          );
+      if (canScheduleExact == false) {
+        await androidPlugin.requestExactAlarmsPermission();
+      }
+
+      const alarmChannel = AndroidNotificationChannel(
+        'alarm_channel',
+        'Alarms',
+        description: 'Alarm notifications',
+        importance: Importance.max,
+        playSound: true,
+      );
 
       await androidPlugin.createNotificationChannel(alarmChannel);
     }
   }
 
+  // ------------------------------------------------------------
+  // 🔔 ONE-TIME ALARM
+  // ------------------------------------------------------------
   static Future<void> scheduleAlarm({
     required int id,
     required DateTime time,
     required String title,
   }) async {
-    final scheduledTime = tz.TZDateTime.from(time, tz.local);
+    final scheduled = tz.TZDateTime.from(time, tz.local);
+    if (scheduled.isBefore(tz.TZDateTime.now(tz.local))) return;
 
-    if (scheduledTime.isBefore(tz.TZDateTime.now(tz.local))) return;
+    final diff = scheduled.difference(tz.TZDateTime.now(tz.local));
+    await showAlarmConfirmation(diff);
 
     await _notifications.zonedSchedule(
       id,
       title,
       'Alarm ringing ⏰',
-      scheduledTime,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          'alarm_channel',
-          'Alarms',
-          channelDescription: 'Alarm notifications',
-          importance: Importance.max,
-          priority: Priority.high,
-          playSound: true,
-          fullScreenIntent: true, // 🔥 REQUIRED
-          category: AndroidNotificationCategory.alarm,
-        ),
-      ),
+      scheduled,
+      _alarmDetails(),
+      payload: jsonEncode({
+        'type': 'single',
+        'alarmId': id.toString(),
+        'title': title,
+      }),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      payload: '$id|$title',
     );
   }
 
+  // ------------------------------------------------------------
+  // 🔁 REPEATING ALARM
+  // ------------------------------------------------------------
+  static Future<void> scheduleRepeatingAlarm({
+    required String alarmId,
+    required TimeOfDay time,
+    required List<int> repeatDays,
+    required String title,
+  }) async {
+    for (final weekday in repeatDays) {
+      final next = _nextWeekdayDate(weekday, time);
+      final notificationId = '${alarmId}_$weekday'.hashCode;
+
+      await _notifications.zonedSchedule(
+        notificationId,
+        title,
+        'Alarm ringing ⏰',
+        next,
+        _alarmDetails(),
+        payload: jsonEncode({
+          'type': 'repeat',
+          'alarmId': alarmId,
+          'weekday': weekday,
+          'hour': time.hour,
+          'minute': time.minute,
+          'title': title,
+        }),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    }
+  }
+
+  // ------------------------------------------------------------
+  // ❌ CANCEL
+  // ------------------------------------------------------------
   static Future<void> cancelAlarm(int id) async {
     await _notifications.cancel(id);
   }
 
-  static DateTime _nextDateForWeekday(int weekday, TimeOfDay time) {
-    final now = DateTime.now();
-    DateTime scheduled = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      time.hour,
-      time.minute,
+  static Future<void> cancelRepeatingAlarm(
+    String alarmId,
+    List<int> repeatDays,
+  ) async {
+    for (final day in repeatDays) {
+      await _notifications.cancel('${alarmId}_$day'.hashCode);
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 🔁 AUTO-RESCHEDULE NEXT WEEK
+  // ------------------------------------------------------------
+  static Future<void> _rescheduleNextRepeat(Map<String, dynamic> data) async {
+    final alarmId = data['alarmId'];
+    final weekday = data['weekday'];
+    final hour = data['hour'];
+    final minute = data['minute'];
+    final title = data['title'];
+
+    final next = _nextWeekdayDate(
+      weekday,
+      TimeOfDay(hour: hour, minute: minute),
+      fromNextWeek: true,
     );
 
-    while (scheduled.weekday != weekday || scheduled.isBefore(now)) {
-      scheduled = scheduled.add(const Duration(days: 1));
+    final notificationId = '${alarmId}_$weekday'.hashCode;
+
+    await _notifications.zonedSchedule(
+      notificationId,
+      title,
+      'Alarm ringing ⏰',
+      next,
+      _alarmDetails(),
+      payload: jsonEncode(data),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
+  // ------------------------------------------------------------
+  // 📦Show “Alarm set for X minutes” (like real apps)
+  // ------------------------------------------------------------
+  static Future<void> showAlarmConfirmation(Duration diff) async {
+    final minutes = diff.inMinutes;
+    await _notifications.show(
+      999999,
+      'Alarm set',
+      'Alarm will ring in $minutes minutes',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'alarm_channel',
+          'Alarms',
+          importance: Importance.low,
+          priority: Priority.low,
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------
+  // 📦 NOTIFICATION TAP HANDLER
+  // ------------------------------------------------------------
+  static Future<void> _onNotificationResponse(
+    NotificationResponse response,
+  ) async {
+    if (response.payload == null) return;
+
+    final data = jsonDecode(response.payload!);
+
+    // 🔁 reschedule repeating alarm
+    if (data['type'] == 'repeat') {
+      await _rescheduleNextRepeat(data);
     }
 
-    return scheduled;
+    // 🔔 open fullscreen ringing UI
+    NavigationService.openRingingScreen(
+      alarmId: data['alarmId'],
+      title: data['title'],
+    );
+  }
+
+  // ------------------------------------------------------------
+  // 🧠 HELPERS
+  // ------------------------------------------------------------
+  static NotificationDetails _alarmDetails() {
+    return const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'alarm_channel',
+        'Alarms',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        fullScreenIntent: true,
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        visibility: NotificationVisibility.public,
+      ),
+    );
   }
 
   static tz.TZDateTime _nextWeekdayDate(
@@ -140,100 +251,28 @@ class NotificationService {
     return scheduled;
   }
 
-  static Future<void> scheduleRepeatingAlarm({
-    required String alarmId,
-    required TimeOfDay time,
-    required List<int> repeatDays,
-    required String title,
-  }) async {
-    for (final day in repeatDays) {
-      final next = _nextWeekdayDate(day, time);
-
-      final notificationId = '${alarmId}_$day'.hashCode;
-
-      await _notifications.zonedSchedule(
-        notificationId,
-        title,
-        'Alarm ringing ⏰',
-        next,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'alarm_channel',
-            'Alarms',
-            importance: Importance.max,
-            priority: Priority.high,
-            fullScreenIntent: true,
-            category: AndroidNotificationCategory.alarm,
-          ),
-        ),
-        payload: jsonEncode({
-          'type': 'repeat',
-          'alarmId': alarmId,
-          'weekday': day,
-          'hour': time.hour,
-          'minute': time.minute,
-        }),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
-    }
+  // ------------------------------------------------------------
+  // 🛑 STOP SOUND (for RingingScreen)
+  // ------------------------------------------------------------
+  static Future<void> stopAlarmSound() async {
+    // Cancels all alarm sounds immediately
+    await _notifications.cancelAll();
   }
 
-  static Future<void> cancelRepeatingAlarm(
-    String alarmId,
-    List<int> repeatDays,
-  ) async {
-    for (final day in repeatDays) {
-      await cancelAlarm(alarmId.hashCode + day);
-    }
-  }
-
-  static Future<void> _rescheduleNextRepeat(Map<String, dynamic> data) async {
-    final alarmId = data['alarmId'];
-    final weekday = data['weekday'];
-    final hour = data['hour'];
-    final minute = data['minute'];
-
-    final nextTime = _nextWeekdayDate(
-      weekday,
-      TimeOfDay(hour: hour, minute: minute),
-      fromNextWeek: true,
-    );
-
-    final notificationId = '${alarmId}_$weekday'.hashCode;
+  static Future<void> snoozeAlarm(String alarmId) async {
+    final snoozeTime = tz.TZDateTime.now(
+      tz.local,
+    ).add(const Duration(minutes: 5));
 
     await _notifications.zonedSchedule(
-      notificationId,
-      'Alarm',
+      alarmId.hashCode,
+      'Snoozed Alarm',
       'Alarm ringing ⏰',
-      nextTime,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'alarm_channel',
-          'Alarms',
-          importance: Importance.max,
-          priority: Priority.high,
-          fullScreenIntent: true,
-          category: AndroidNotificationCategory.alarm,
-        ),
-      ),
-      payload: jsonEncode(data),
+      snoozeTime,
+      _alarmDetails(),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
     );
-  }
-
-  static Future<void> _onNotificationResponse(
-    NotificationResponse response,
-  ) async {
-    if (response.payload == null) return;
-
-    final data = jsonDecode(response.payload!);
-
-    if (data['type'] == 'repeat') {
-      await _rescheduleNextRepeat(data);
-    }
   }
 }

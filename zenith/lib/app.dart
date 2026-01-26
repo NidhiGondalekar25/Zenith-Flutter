@@ -8,11 +8,11 @@ class ZenithApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey, // 👈 REQUIRED
       title: 'Zenith',
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey, // required for notifications
       onGenerateRoute: AppRouter.generateRoute,
-      initialRoute: '/', // start at HomeScreen
+      initialRoute: '/',
     );
   }
 }

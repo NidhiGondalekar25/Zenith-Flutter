@@ -1,4 +1,19 @@
 import 'package:flutter/material.dart';
 
-// Global navigator key for pushing screens from anywhere (like notifications)
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> navigatorKey =
+    GlobalKey<NavigatorState>();
+
+class NavigationService {
+  static void openRingingScreen({
+    required String alarmId,
+    required String title,
+  }) {
+    navigatorKey.currentState?.pushNamed(
+      '/ring',
+      arguments: {
+        'id': alarmId,
+        'title': title,
+      },
+    );
+  }
+}
