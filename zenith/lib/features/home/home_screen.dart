@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.calendar_today),
             label: 'Calendar',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.repeat), label: 'Habits'),
+          BottomNavigationBarItem(icon: Icon(Icons.repeat), label: 'Routines'),
         ],
       ),
     );
