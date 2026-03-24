@@ -5,7 +5,7 @@ class Habit {
   final String routineId;
   final String title;
   final bool hasReminder;
-  final TimeOfDay? reminderTime;
+  final String? reminderTime;
 
   Habit({
     required this.id,
@@ -21,26 +21,17 @@ class Habit {
       'routineId': routineId,
       'title': title,
       'hasReminder': hasReminder ? 1 : 0,
-      'reminderTime': reminderTime == null
-          ? null
-          : '${reminderTime!.hour}:${reminderTime!.minute}',
+      'reminderTime': reminderTime,
     };
   }
 
   factory Habit.fromMap(Map<String, dynamic> map) {
-    final time = map['reminderTime'] as String?;
-
     return Habit(
       id: map['id'],
       routineId: map['routineId'],
       title: map['title'],
       hasReminder: map['hasReminder'] == 1,
-      reminderTime: time == null
-          ? null
-          : TimeOfDay(
-              hour: int.parse(time.split(':')[0]),
-              minute: int.parse(time.split(':')[1]),
-            ),
+      reminderTime: map['reminderTime'],
     );
   }
 }

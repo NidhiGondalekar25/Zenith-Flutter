@@ -8,10 +8,7 @@ import 'routine_model.dart';
 class RoutineDetailScreen extends StatefulWidget {
   final Routine routine;
 
-  const RoutineDetailScreen({
-    super.key,
-    required this.routine,
-  });
+  const RoutineDetailScreen({super.key, required this.routine});
 
   @override
   State<RoutineDetailScreen> createState() => _RoutineDetailScreenState();
@@ -30,10 +27,10 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
   Future<void> _loadData() async {
     final habits = await HabitDB.getHabitsForRoutine(widget.routine.id);
-    final completed =
-        await HabitDB.getCompletedHabitsForToday(widget.routine.id);
-    final streak =
-        await HabitDB.calculateRoutineStreak(widget.routine.id);
+    final completed = await HabitDB.getCompletedHabitsForToday(
+      widget.routine.id,
+    );
+    final streak = await HabitDB.calculateRoutineStreak(widget.routine.id);
 
     setState(() {
       _habits = habits;
@@ -53,8 +50,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
           content: TextField(
             controller: controller,
             autofocus: true,
-            decoration:
-                const InputDecoration(hintText: 'Habit name'),
+            decoration: const InputDecoration(hintText: 'Habit name'),
           ),
           actions: [
             TextButton(
@@ -108,6 +104,76 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
     _loadData();
   }
 
+  Future<void> _setReminder(Habit habit) async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+
+    if (time == null) return;
+
+    final formatted =
+        "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+
+    final updated = Habit(
+      id: habit.id,
+      routineId: habit.routineId,
+      title: habit.title,
+      hasReminder: true,
+      reminderTime: formatted,
+    );
+
+    await HabitDB.updateHabit(updated);
+
+    _loadData();
+  }
+
+  Future<void> _editHabit(Habit habit) async {
+    final controller = TextEditingController(text: habit.title);
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Edit Habit"),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: "Habit name"),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (controller.text.trim().isNotEmpty) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true) {
+      final updated = Habit(
+        id: habit.id,
+        routineId: habit.routineId,
+        title: controller.text.trim(),
+        hasReminder: habit.hasReminder,
+        reminderTime: habit.reminderTime,
+      );
+
+      await HabitDB.updateHabit(updated);
+
+      _loadData();
+    }
+  }
+
   Future<void> _deleteHabit(Habit habit) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -124,9 +190,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Delete'),
             ),
@@ -144,22 +208,21 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.routine.title),
-      ),
+      appBar: AppBar(title: Text(widget.routine.title)),
       floatingActionButton: FloatingActionButton(
         onPressed: _addHabit,
         child: const Icon(Icons.add),
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              '$_streak day streak 🔥',
-              style: Theme.of(context).textTheme.titleLarge,
+          if (_streak > 0)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                '$_streak day streak 🔥',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
             ),
-          ),
           Expanded(
             child: _habits.isEmpty
                 ? const Center(
@@ -172,31 +235,38 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                     itemCount: _habits.length,
                     itemBuilder: (context, index) {
                       final habit = _habits[index];
-                      final checked =
-                          _completedToday.contains(habit.id);
+                      final checked = _completedToday.contains(habit.id);
 
                       return Dismissible(
                         key: ValueKey(habit.id),
                         direction: DismissDirection.endToStart,
                         background: Container(
                           alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
                           color: Colors.red,
-                          child: const Icon(
-                            Icons.delete,
-                            color: Colors.white,
-                          ),
+                          child: const Icon(Icons.delete, color: Colors.white),
                         ),
                         confirmDismiss: (_) async {
                           await _deleteHabit(habit);
                           return false;
                         },
-                        child: CheckboxListTile(
+                        child: ListTile(
                           title: Text(habit.title),
-                          value: checked,
-                          onChanged: (value) {
-                            _toggleHabit(habit, value ?? false);
+                          subtitle: habit.hasReminder
+                              ? Text("Reminder: ${habit.reminderTime}")
+                              : null,
+                          trailing: IconButton(
+                            icon: Icon(
+                              habit.hasReminder
+                                  ? Icons.alarm_on
+                                  : Icons.alarm_add,
+                            ),
+                            onPressed: () {
+                              _setReminder(habit);
+                            },
+                          ),
+                          onLongPress: () {
+                            _editHabit(habit);
                           },
                         ),
                       );

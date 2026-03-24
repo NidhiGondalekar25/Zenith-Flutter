@@ -13,7 +13,13 @@ class NotificationService {
   /// 🔔 INIT
   static Future<void> init() async {
     tz.initializeTimeZones();
-    tz.setLocalLocation(tz.local);
+
+    try {
+      tz.setLocalLocation(tz.getLocation(DateTime.now().timeZoneName));
+    } catch (_) {
+      // Fallback to UTC if timezone name can't be resolved
+      tz.setLocalLocation(tz.UTC);
+    }
 
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
