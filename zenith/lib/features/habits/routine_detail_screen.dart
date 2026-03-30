@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import 'habit_db.dart';
 import 'habit_model.dart';
 import 'routine_model.dart';
+import '../../core/utils/notification_service.dart';
 
 class RoutineDetailScreen extends StatefulWidget {
   final Routine routine;
@@ -27,9 +28,7 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
   Future<void> _loadData() async {
     final habits = await HabitDB.getHabitsForRoutine(widget.routine.id);
-    final completed = await HabitDB.getCompletedHabitsForToday(
-      widget.routine.id,
-    );
+    final completed = await HabitDB.getCompletedHabitsForToday(widget.routine.id);
     final streak = await HabitDB.calculateRoutineStreak(widget.routine.id);
 
     setState(() {
@@ -39,35 +38,33 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
     });
   }
 
+  int _notifId(String habitId) => habitId.hashCode.abs();
+
   Future<void> _addHabit() async {
     final controller = TextEditingController();
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('New Habit'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Habit name'),
+      builder: (context) => AlertDialog(
+        title: const Text('New Habit'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Habit name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.trim().isNotEmpty) {
-                  Navigator.pop(context, true);
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) Navigator.pop(context, true);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
 
     if (result == true) {
@@ -75,10 +72,9 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
         id: const Uuid().v4(),
         routineId: widget.routine.id,
         title: controller.text.trim(),
-        hasReminder: false, // ✅ REQUIRED
+        hasReminder: false,
         reminderTime: null,
       );
-
       await HabitDB.addHabit(habit);
       _loadData();
     }
@@ -86,7 +82,6 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
   Future<void> _toggleHabit(Habit habit, bool checked) async {
     final today = DateUtils.dateOnly(DateTime.now());
-
     if (checked) {
       await HabitDB.markHabitDone(
         habitId: habit.id,
@@ -100,11 +95,55 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
         date: today,
       );
     }
-
     _loadData();
   }
 
   Future<void> _setReminder(Habit habit) async {
+    // ── Already has a reminder → offer to edit or remove ────────
+    if (habit.hasReminder) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Reminder'),
+          content: Text(
+            '"${habit.title}" has a reminder at ${habit.reminderTime}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () => Navigator.pop(context, 'remove'),
+              child: const Text('Remove'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, 'edit'),
+              child: const Text('Edit Time'),
+            ),
+          ],
+        ),
+      );
+
+      if (action == 'remove') {
+        await NotificationService.cancelAlarm(_notifId(habit.id));
+        await HabitDB.updateHabit(Habit(
+          id: habit.id,
+          routineId: habit.routineId,
+          title: habit.title,
+          hasReminder: false,
+          reminderTime: null,
+        ));
+        _loadData();
+        return;
+      }
+
+      if (action != 'edit') return; // cancelled
+      // fall through to time picker below
+    }
+
+    // ── No reminder → pick a time and schedule ─────────────────
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
@@ -113,17 +152,28 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
     if (time == null) return;
 
     final formatted =
-        "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
-    final updated = Habit(
+    // Schedule for next occurrence of this time
+    final now = DateTime.now();
+    var scheduled = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+
+    await NotificationService.scheduleAlarm(
+      id: _notifId(habit.id),
+      time: scheduled,
+      title: habit.title,
+    );
+
+    await HabitDB.updateHabit(Habit(
       id: habit.id,
       routineId: habit.routineId,
       title: habit.title,
       hasReminder: true,
       reminderTime: formatted,
-    );
-
-    await HabitDB.updateHabit(updated);
+    ));
 
     _loadData();
   }
@@ -133,43 +183,36 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Edit Habit"),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: "Habit name"),
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Habit'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Habit name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (controller.text.trim().isNotEmpty) {
-                  Navigator.pop(context, true);
-                }
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) Navigator.pop(context, true);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
 
     if (result == true) {
-      final updated = Habit(
+      await HabitDB.updateHabit(Habit(
         id: habit.id,
         routineId: habit.routineId,
         title: controller.text.trim(),
         hasReminder: habit.hasReminder,
         reminderTime: habit.reminderTime,
-      );
-
-      await HabitDB.updateHabit(updated);
-
+      ));
       _loadData();
     }
   }
@@ -177,29 +220,29 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
   Future<void> _deleteHabit(Habit habit) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Delete Habit'),
-          content: Text(
-            'Delete "${habit.title}"?\n\n'
-            'This will remove its entire history.',
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Habit'),
+        content: Text(
+          'Delete "${habit.title}"?\n\nThis will remove its entire history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
 
     if (confirm == true) {
+      if (habit.hasReminder) {
+        await NotificationService.cancelAlarm(_notifId(habit.id));
+      }
       await HabitDB.deleteHabit(habit.id);
       _loadData();
     }
@@ -235,7 +278,6 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                     itemCount: _habits.length,
                     itemBuilder: (context, index) {
                       final habit = _habits[index];
-                      final checked = _completedToday.contains(habit.id);
 
                       return Dismissible(
                         key: ValueKey(habit.id),
@@ -253,21 +295,24 @@ class _RoutineDetailScreenState extends State<RoutineDetailScreen> {
                         child: ListTile(
                           title: Text(habit.title),
                           subtitle: habit.hasReminder
-                              ? Text("Reminder: ${habit.reminderTime}")
+                              ? Text(
+                                  habit.reminderTime!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                )
                               : null,
                           trailing: IconButton(
                             icon: Icon(
-                              habit.hasReminder
-                                  ? Icons.alarm_on
-                                  : Icons.alarm_add,
+                              habit.hasReminder ? Icons.alarm_on : Icons.alarm_add,
+                              color: habit.hasReminder
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
                             ),
-                            onPressed: () {
-                              _setReminder(habit);
-                            },
+                            onPressed: () => _setReminder(habit),
                           ),
-                          onLongPress: () {
-                            _editHabit(habit);
-                          },
+                          onLongPress: () => _editHabit(habit),
                         ),
                       );
                     },

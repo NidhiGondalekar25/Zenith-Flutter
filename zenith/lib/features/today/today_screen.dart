@@ -8,10 +8,11 @@ class TodayScreen extends StatefulWidget {
   const TodayScreen({super.key});
 
   @override
-  State<TodayScreen> createState() => _TodayScreenState();
+  State<TodayScreen> createState() => TodayScreenState();
 }
 
-class _TodayScreenState extends State<TodayScreen> {
+class TodayScreenState extends State<TodayScreen> {
+  Future<void> refresh() => _loadToday();
   List<Routine> _todayRoutines = [];
   Map<String, List<Habit>> _habits = {};
   Map<String, Set<String>> _completed = {};
@@ -46,9 +47,8 @@ class _TodayScreenState extends State<TodayScreen> {
 
     for (final routine in todayRoutines) {
       habitsMap[routine.id] = await HabitDB.getHabitsForRoutine(routine.id);
-      completedMap[routine.id] = await HabitDB.getCompletedHabitsForToday(
-        routine.id,
-      );
+      completedMap[routine.id] =
+          await HabitDB.getCompletedHabitsForToday(routine.id);
     }
 
     // Calculate streak from app_stats
@@ -103,8 +103,10 @@ class _TodayScreenState extends State<TodayScreen> {
   int _totalHabits() =>
       _todayRoutines.fold(0, (sum, r) => sum + (_habits[r.id]?.length ?? 0));
 
-  int _totalCompleted() =>
-      _todayRoutines.fold(0, (sum, r) => sum + (_completed[r.id]?.length ?? 0));
+  int _totalCompleted() => _todayRoutines.fold(
+        0,
+        (sum, r) => sum + (_completed[r.id]?.length ?? 0),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -124,7 +126,10 @@ class _TodayScreenState extends State<TodayScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
             ),
             SizedBox(height: 4),
-            Text('Enjoy your rest day!', style: TextStyle(color: Colors.grey)),
+            Text(
+              'Enjoy your rest day!',
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       );
@@ -150,11 +155,8 @@ class _TodayScreenState extends State<TodayScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.local_fire_department,
-                  color: Colors.orange,
-                  size: 26,
-                ),
+                const Icon(Icons.local_fire_department,
+                    color: Colors.orange, size: 26),
                 const SizedBox(width: 8),
                 Text(
                   '$_streak Day Streak',
@@ -173,9 +175,7 @@ class _TodayScreenState extends State<TodayScreen> {
           margin: const EdgeInsets.only(bottom: 20),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.surfaceVariant.withOpacity(0.4),
+            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.4),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Column(
@@ -208,13 +208,10 @@ class _TodayScreenState extends State<TodayScreen> {
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 8,
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.outline.withOpacity(0.15),
+                  backgroundColor:
+                      Theme.of(context).colorScheme.outline.withOpacity(0.15),
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    progress == 1.0
-                        ? Colors.green
-                        : Theme.of(context).colorScheme.primary,
+                    progress == 1.0 ? Colors.green : Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ),
@@ -259,15 +256,11 @@ class _TodayScreenState extends State<TodayScreen> {
               ],
             ),
             child: Theme(
-              data: Theme.of(
-                context,
-              ).copyWith(dividerColor: Colors.transparent),
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 initiallyExpanded: true,
-                tilePadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
+                tilePadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 title: Row(
                   children: [
                     Expanded(
@@ -280,11 +273,8 @@ class _TodayScreenState extends State<TodayScreen> {
                       ),
                     ),
                     if (allDone)
-                      const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                        size: 18,
-                      ),
+                      const Icon(Icons.check_circle,
+                          color: Colors.green, size: 18),
                   ],
                 ),
                 subtitle: Text(
@@ -321,7 +311,8 @@ class _TodayScreenState extends State<TodayScreen> {
                             ),
                           ),
                           controlAffinity: ListTileControlAffinity.leading,
-                          activeColor: Theme.of(context).colorScheme.primary,
+                          activeColor:
+                              Theme.of(context).colorScheme.primary,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
