@@ -1,9 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../alarm/alarm_screen.dart';
 import '../calender/calendar_screen.dart';
 import '../habits/habits_screen.dart';
 import '../today/today_screen.dart';
+import '../profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const CalendarScreen(),
       const HabitsScreen(),
       AlarmScreen(key: _alarmKey),
+      const ProfileScreen(),
     ];
   }
 
@@ -63,6 +66,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           BottomNavigationBarItem(icon: Icon(Icons.repeat), label: 'Routines'),
           BottomNavigationBarItem(icon: Icon(Icons.alarm), label: 'Alarm'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
         ],
       ),
     );

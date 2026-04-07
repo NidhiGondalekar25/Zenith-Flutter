@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../features/auth/auth_gate.dart';
 import '../features/home/home_screen.dart';
 import '../features/alarm/add_edit_alarm_screen.dart';
 import '../features/alarm/alarm_screen.dart';
@@ -8,6 +9,9 @@ class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
       case '/':
+        return MaterialPageRoute(builder: (_) => const AuthGate());
+
+      case '/home':
         return MaterialPageRoute(builder: (_) => const HomeScreen());
 
       case '/add_edit_alarm':
@@ -34,7 +38,7 @@ class AppRouter {
         );
 
       default:
-        return MaterialPageRoute(builder: (_) => const HomeScreen());
+        return MaterialPageRoute(builder: (_) => const AuthGate());
     }
   }
 }
